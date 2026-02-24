@@ -21,7 +21,9 @@ ownscribe **does not**:
 
 All audio, transcripts, and summaries remain local.
 
-<!-- TODO: Add asciinema demo or terminal screenshot here -->
+<p align="center">
+  <img src="docs/demo-pipeline.gif" alt="ownscribe demo" width="750">
+</p>
 
 ## Features
 
@@ -33,6 +35,7 @@ All audio, transcripts, and summaries remain local.
 - **Local LLM summarization** — structured meeting notes via Ollama, LM Studio, or any OpenAI-compatible server
 - **Summarization templates** — built-in presets for meetings, lectures, and quick briefs; define your own in config
 - **Ask your meetings** — ask natural-language questions across all your meeting notes; uses a two-stage LLM pipeline with keyword fallback
+  <br><img src="docs/demo-ask.gif" alt="ownscribe ask demo" width="700">
 - **One command** — just run `ownscribe`, press Ctrl+C when done, get transcript + summary
 
 ## Requirements
