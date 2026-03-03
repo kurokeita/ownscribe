@@ -81,7 +81,6 @@ class WhisperXTranscriber(Transcriber):
         writer = DownloadProgressWriter(
             lambda event: self._on_download_progress(step_key, stage_label, event)
         )
-        self._progress.update(step_key, 0.0)
         self._set_detail(step_key, stage_label)
         with contextlib.ExitStack() as stack:
             stack.enter_context(contextlib.redirect_stdout(writer))
