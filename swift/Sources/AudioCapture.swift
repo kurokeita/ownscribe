@@ -636,14 +636,9 @@ func mergeAudioFiles(systemPath: String, micPath: String,
                         let sysCh = Int(sysBuf.format.channelCount)
                         let wo = Int(writeOffset)
                         for i in 0..<Int(sysBuf.frameLength) {
-                            if outputChannels == 1 {
-                                var mix: Float = 0
-                                for ch in 0..<sysCh { mix += sysData[ch][i] }
-                                outPtr[wo + i] += mix / Float(sysCh)
-                            } else {
-                                outPtr[(wo + i) * 2] += sysData[0][i]
-                                outPtr[(wo + i) * 2 + 1] += sysCh > 1 ? sysData[1][i] : sysData[0][i]
-                            }
+                            var mix: Float = 0
+                            for ch in 0..<sysCh { mix += sysData[ch][i] }
+                            outPtr[wo + i] += mix / Float(sysCh)
                         }
                     }
                 }
