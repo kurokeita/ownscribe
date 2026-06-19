@@ -294,7 +294,7 @@ def run_pipeline(config: Config) -> None:
     _do_transcribe_and_summarize(config, audio_path, out_dir)
 
 
-def run_transcribe(config: Config, audio_file: str) -> None:
+def run_transcribe(config: Config, audio_file: str, *, summarize: bool = False) -> None:
     """Transcribe an audio file into a fresh ownscribe output directory."""
     source_path = Path(audio_file).resolve()
     _check_audio_silence(source_path)
@@ -305,7 +305,7 @@ def run_transcribe(config: Config, audio_file: str) -> None:
         out_dir = _get_named_output_dir(config, source_path.stem)
         audio_path = out_dir / f"recording{source_path.suffix}"
         shutil.copy2(source_path, audio_path)
-    _do_transcribe_and_summarize(config, audio_path, out_dir, summarize=False)
+    _do_transcribe_and_summarize(config, audio_path, out_dir, summarize=summarize)
 
 
 def run_warmup(config: Config) -> None:

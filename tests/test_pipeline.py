@@ -475,6 +475,46 @@ class TestRunTranscribeOutputDir:
         assert [p for p in out_base.iterdir() if p.is_dir()] == [existing]
         assert (existing / "transcript.md").exists()
 
+    def test_summarize_flag_also_writes_summary(self, tmp_path):
+        from ownscribe.pipeline import run_transcribe
+
+        source_dir = tmp_path / "downloads"
+        source_dir.mkdir()
+        audio_path = source_dir / "Team Meeting.wav"
+        audio_path.touch()
+
+        out_base = tmp_path / "out"
+        config = Config()
+        config.output.dir = str(out_base)
+        config.output.format = "markdown"
+        config.summarization.enabled = True
+
+        mock_transcriber = mock.MagicMock()
+        mock_transcriber.transcribe.return_value = TranscriptResult(
+            segments=[Segment(text="Test.", start=0.0, end=1.0)],
+            language="en",
+            duration=1.0,
+        )
+        mock_summarizer = mock.MagicMock()
+        mock_summarizer.is_available.return_value = True
+        mock_summarizer.summarize.return_value = "## Summary\nGood meeting."
+        mock_summarizer.generate_title.return_value = "team-sync"
+
+        with (
+            mock.patch("ownscribe.pipeline._create_transcriber", return_value=mock_transcriber),
+            mock.patch("ownscribe.pipeline.create_summarizer", return_value=mock_summarizer),
+            mock.patch("ownscribe.summarization.llama_cpp_summarizer._ensure_model"),
+            mock.patch("ownscribe.pipeline._check_audio_silence"),
+        ):
+            run_transcribe(config, str(audio_path), summarize=True)
+
+        subdirs = [p for p in out_base.iterdir() if p.is_dir()]
+        assert len(subdirs) == 1
+        out_dir = subdirs[0]
+        assert out_dir.name.endswith("_team-sync")
+        assert (out_dir / "transcript.md").exists()
+        assert (out_dir / "summary.md").exists()
+
 
 class TestRunSummarizeOutputDir:
     """run_summarize copies the source into a fresh, named ownscribe output dir."""

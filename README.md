@@ -151,6 +151,7 @@ ownscribe devices                  # list audio devices (uses native CoreAudio w
 ownscribe apps                     # list running apps with PIDs for use with --pid
 ownscribe warmup                   # prefetch WhisperX/pyannote models before a meeting
 ownscribe transcribe recording.wav # transcribe an audio file (copies it into a new output dir)
+ownscribe transcribe recording.wav --summarize # transcribe, then also summarize
 ownscribe summarize transcript.md  # summarize a transcript (copies it into a new output dir)
 ownscribe resume ./2026-02-20_1736 # resume a failed/partial pipeline in a directory
 ownscribe ask "question"           # search your meetings with a natural-language question

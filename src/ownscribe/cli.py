@@ -141,18 +141,21 @@ def devices() -> None:
 @cli.command()
 @click.argument("file", type=click.Path(exists=True))
 @click.option("--diarize", is_flag=True, help="Enable speaker diarization.")
+@click.option("--summarize", is_flag=True, help="Also summarize after transcribing.")
 @click.option("--model", default=None, help="Whisper model size.")
 @click.option("--language", default=None, help="Language code for transcription (e.g. en, de, fr).")
 @click.option("--format", "output_format", type=click.Choice(["markdown", "json"]), default=None)
 @click.pass_context
 def transcribe(
-    ctx: click.Context, file: str, diarize: bool,
+    ctx: click.Context, file: str, diarize: bool, summarize: bool,
     model: str | None, language: str | None, output_format: str | None,
 ) -> None:
     """Transcribe an audio file."""
     config = ctx.obj["config"]
     if diarize:
         config.diarization.enabled = True
+    if summarize:
+        config.summarization.enabled = True
     if model:
         config.transcription.model = model
     if language:
@@ -161,7 +164,7 @@ def transcribe(
         config.output.format = output_format
 
     from ownscribe.pipeline import run_transcribe
-    run_transcribe(config, file)
+    run_transcribe(config, file, summarize=summarize)
 
 
 @cli.command()
