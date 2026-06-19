@@ -142,12 +142,18 @@ def devices() -> None:
 @click.argument("file", type=click.Path(exists=True))
 @click.option("--diarize", is_flag=True, help="Enable speaker diarization.")
 @click.option("--summarize", is_flag=True, help="Also summarize after transcribing.")
+@click.option(
+    "--identify/--no-identify",
+    "identify",
+    default=None,
+    help="Relabel diarized speakers from enrolled voices (overrides voice.auto_identify).",
+)
 @click.option("--model", default=None, help="Whisper model size.")
 @click.option("--language", default=None, help="Language code for transcription (e.g. en, de, fr).")
 @click.option("--format", "output_format", type=click.Choice(["markdown", "json"]), default=None)
 @click.pass_context
 def transcribe(
-    ctx: click.Context, file: str, diarize: bool, summarize: bool,
+    ctx: click.Context, file: str, diarize: bool, summarize: bool, identify: bool | None,
     model: str | None, language: str | None, output_format: str | None,
 ) -> None:
     """Transcribe an audio file."""
@@ -164,7 +170,17 @@ def transcribe(
         config.output.format = output_format
 
     from ownscribe.pipeline import run_transcribe
-    run_transcribe(config, file, summarize=summarize)
+    run_transcribe(config, file, summarize=summarize, identify=identify)
+
+
+@cli.command()
+@click.argument("directory", type=click.Path(exists=True, file_okay=False))
+@click.pass_context
+def analyze(ctx: click.Context, directory: str) -> None:
+    """Enroll named voices from a diarized meeting directory."""
+    config = ctx.obj["config"]
+    from ownscribe.pipeline import run_analyze
+    run_analyze(config, directory)
 
 
 @cli.command()

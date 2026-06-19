@@ -6,6 +6,8 @@ import contextlib
 import json
 from unittest import mock
 
+import pytest
+
 from ownscribe.config import Config
 from ownscribe.transcription.models import Segment, TranscriptResult
 
@@ -672,3 +674,232 @@ class TestResume:
         with mock.patch("ownscribe.pipeline.run_summarize") as mock_sum:
             run_resume(config, str(tmp_path))
             mock_sum.assert_called_once_with(config, str(tmp_path / "transcript.json"), in_place=True)
+
+
+class TestVoiceIdentification:
+    """Sidecar writing and opt-in speaker relabeling in the transcribe path."""
+
+    def _diarized_result(self) -> TranscriptResult:
+        return TranscriptResult(
+            segments=[
+                Segment(text="hi", start=0.0, end=2.0, speaker="SPEAKER_00"),
+                Segment(text="yo", start=2.0, end=4.0, speaker="SPEAKER_01"),
+            ],
+            language="en",
+            duration=4.0,
+        )
+
+    def test_do_transcribe_writes_sidecar_when_diarized(self, tmp_path):
+        from ownscribe.pipeline import _do_transcribe_and_summarize
+        from ownscribe.voiceid.sidecar import DIARIZATION_FILENAME
+
+        config = Config()
+        config.summarization.enabled = False
+        audio = tmp_path / "recording.wav"
+        audio.write_bytes(b"x" * 100)
+
+        transcriber = mock.MagicMock()
+        transcriber.transcribe.return_value = self._diarized_result()
+        with mock.patch("ownscribe.pipeline._create_transcriber", return_value=transcriber):
+            _do_transcribe_and_summarize(config, audio, tmp_path, summarize=False)
+
+        assert (tmp_path / DIARIZATION_FILENAME).exists()
+
+    def test_do_transcribe_no_sidecar_without_speakers(self, tmp_path):
+        from ownscribe.pipeline import _do_transcribe_and_summarize
+        from ownscribe.voiceid.sidecar import DIARIZATION_FILENAME
+
+        config = Config()
+        config.summarization.enabled = False
+        audio = tmp_path / "recording.wav"
+        audio.write_bytes(b"x" * 100)
+
+        transcriber = mock.MagicMock()
+        transcriber.transcribe.return_value = TranscriptResult(
+            segments=[Segment(text="hi", start=0.0, end=2.0)],
+            language="en",
+            duration=2.0,
+        )
+        with mock.patch("ownscribe.pipeline._create_transcriber", return_value=transcriber):
+            _do_transcribe_and_summarize(config, audio, tmp_path, summarize=False)
+
+        assert not (tmp_path / DIARIZATION_FILENAME).exists()
+
+    def test_do_transcribe_relabels_when_identify(self, tmp_path):
+        from ownscribe import pipeline
+
+        config = Config()
+        config.summarization.enabled = False
+        audio = tmp_path / "recording.wav"
+        audio.write_bytes(b"x" * 100)
+
+        transcriber = mock.MagicMock()
+        transcriber.transcribe.return_value = self._diarized_result()
+
+        store = mock.MagicMock()
+        store.list_names.return_value = ["Alice"]
+
+        with (
+            mock.patch("ownscribe.pipeline._create_transcriber", return_value=transcriber),
+            mock.patch.object(pipeline, "_build_identify_tools", return_value=(mock.MagicMock(), store)),
+            mock.patch(
+                "ownscribe.voiceid.identify.build_relabel_map",
+                return_value={"SPEAKER_00": "Alice"},
+            ),
+        ):
+            pipeline._do_transcribe_and_summarize(
+                config, audio, tmp_path, summarize=False, identify=True
+            )
+
+        transcript = (tmp_path / "transcript.md").read_text()
+        assert "Alice" in transcript
+        assert "SPEAKER_00" not in transcript
+
+    def test_auto_identify_relabels_when_identify_none(self, tmp_path):
+        from ownscribe import pipeline
+
+        config = Config()
+        config.summarization.enabled = False
+        config.voice.auto_identify = True
+        audio = tmp_path / "recording.wav"
+        audio.write_bytes(b"x" * 100)
+
+        transcriber = mock.MagicMock()
+        transcriber.transcribe.return_value = self._diarized_result()
+
+        store = mock.MagicMock()
+        store.list_names.return_value = ["Alice"]
+
+        with (
+            mock.patch("ownscribe.pipeline._create_transcriber", return_value=transcriber),
+            mock.patch.object(pipeline, "_build_identify_tools", return_value=(mock.MagicMock(), store)),
+            mock.patch(
+                "ownscribe.voiceid.identify.build_relabel_map",
+                return_value={"SPEAKER_00": "Alice"},
+            ),
+        ):
+            pipeline._do_transcribe_and_summarize(
+                config, audio, tmp_path, summarize=False, identify=None
+            )
+
+        assert "Alice" in (tmp_path / "transcript.md").read_text()
+
+    def test_no_identify_overrides_auto_identify(self, tmp_path):
+        from ownscribe import pipeline
+
+        config = Config()
+        config.summarization.enabled = False
+        config.voice.auto_identify = True
+        audio = tmp_path / "recording.wav"
+        audio.write_bytes(b"x" * 100)
+
+        transcriber = mock.MagicMock()
+        transcriber.transcribe.return_value = self._diarized_result()
+
+        with (
+            mock.patch("ownscribe.pipeline._create_transcriber", return_value=transcriber),
+            mock.patch.object(pipeline, "_build_identify_tools") as build_tools,
+        ):
+            pipeline._do_transcribe_and_summarize(
+                config, audio, tmp_path, summarize=False, identify=False
+            )
+
+        build_tools.assert_not_called()
+        assert "SPEAKER_00" in (tmp_path / "transcript.md").read_text()
+
+    def test_maybe_identify_empty_store_notifies(self, tmp_path, capsys):
+        from ownscribe import pipeline
+
+        config = Config()
+        config.voice.auto_identify = True
+        config.voice.dir = str(tmp_path / "voices")
+        result = self._diarized_result()
+
+        pipeline._maybe_identify(config, result, tmp_path / "recording.wav", None)
+
+        assert result.segments[0].speaker == "SPEAKER_00"
+        assert "analyze" in capsys.readouterr().err.lower()
+
+    def test_maybe_identify_missing_speechbrain_warns(self, capsys):
+        from ownscribe import pipeline
+
+        config = Config()
+        config.voice.auto_identify = True
+        result = self._diarized_result()
+
+        embedder = mock.MagicMock()
+        embedder.ensure_available.side_effect = ImportError(
+            "speechbrain is required ... ownscribe[voiceid]"
+        )
+        store = mock.MagicMock()
+        store.list_names.return_value = ["Alice"]
+
+        with mock.patch.object(pipeline, "_build_identify_tools", return_value=(embedder, store)):
+            pipeline._maybe_identify(config, result, "recording.wav", None)
+
+        assert result.segments[0].speaker == "SPEAKER_00"
+        assert "skipped" in capsys.readouterr().err.lower()
+
+
+class TestRunAnalyze:
+    """Interactive enrollment from a diarized meeting directory."""
+
+    def test_transcript_name_suggestions_maps_renamed_headers(self, tmp_path):
+        from ownscribe import pipeline
+
+        (tmp_path / "transcript.md").write_text(
+            "# Transcript\n\n**Alice** [00:00]\nhi\n\n**SPEAKER_01** [00:02]\nyo\n"
+        )
+        ranges = {"SPEAKER_00": [(0.0, 2.0)], "SPEAKER_01": [(2.0, 4.0)]}
+        suggestions = pipeline._transcript_name_suggestions(tmp_path, ranges)
+        assert suggestions == {"SPEAKER_00": "Alice"}
+
+    def test_run_analyze_enrolls_named_speakers(self, tmp_path, monkeypatch):
+        from ownscribe import pipeline
+        from ownscribe.voiceid.sidecar import DIARIZATION_FILENAME
+        from ownscribe.voiceid.store import VoiceStore
+
+        config = Config()
+        config.voice.dir = str(tmp_path / "voices")
+        (tmp_path / DIARIZATION_FILENAME).write_text(
+            '{"segments": [{"start": 0.0, "end": 3.0, "speaker": "SPEAKER_00"}]}'
+        )
+        (tmp_path / "recording.wav").write_bytes(b"x" * 100)
+
+        import numpy as np
+
+        embedder = mock.MagicMock()
+        embedder.embed.return_value = np.array([1.0, 0.0, 0.0], dtype=np.float32)
+        store = VoiceStore(config.voice.resolved_dir)
+
+        monkeypatch.setattr(pipeline, "_build_identify_tools", lambda cfg: (embedder, store))
+        monkeypatch.setattr("ownscribe.voiceid.playback.extract_clip", lambda *a: tmp_path / "clip.wav")
+        monkeypatch.setattr("ownscribe.voiceid.playback.play_clip", lambda *a: True)
+        monkeypatch.setattr("click.prompt", lambda *a, **k: "Alice")
+
+        pipeline.run_analyze(config, str(tmp_path))
+
+        assert VoiceStore(config.voice.resolved_dir).list_names() == ["Alice"]
+
+    def test_run_analyze_missing_speechbrain_exits_cleanly(self, tmp_path, monkeypatch, capsys):
+        from ownscribe import pipeline
+        from ownscribe.voiceid.sidecar import DIARIZATION_FILENAME
+
+        config = Config()
+        config.voice.dir = str(tmp_path / "voices")
+        (tmp_path / DIARIZATION_FILENAME).write_text(
+            '{"segments": [{"start": 0.0, "end": 3.0, "speaker": "SPEAKER_00"}]}'
+        )
+        (tmp_path / "recording.wav").write_bytes(b"x" * 100)
+
+        embedder = mock.MagicMock()
+        embedder.ensure_available.side_effect = ImportError(
+            "speechbrain is required ... ownscribe[voiceid]"
+        )
+        store = mock.MagicMock()
+        monkeypatch.setattr(pipeline, "_build_identify_tools", lambda cfg: (embedder, store))
+
+        with pytest.raises(SystemExit):
+            pipeline.run_analyze(config, str(tmp_path))
+
+        assert "voiceid" in capsys.readouterr().err.lower()

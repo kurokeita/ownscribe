@@ -6,7 +6,7 @@ import os
 from pathlib import Path
 from unittest import mock
 
-from ownscribe.config import Config, OutputConfig, _merge_toml, ensure_config_file
+from ownscribe.config import Config, OutputConfig, VoiceConfig, _merge_toml, ensure_config_file
 from ownscribe.transcription.whisperx_transcriber import WhisperXTranscriber
 
 
@@ -52,6 +52,35 @@ class TestDefaults:
     def test_default_silence_timeout(self):
         cfg = Config()
         assert cfg.audio.silence_timeout == 300
+
+
+class TestVoiceDefaults:
+    def test_default_voice_dir(self):
+        cfg = Config()
+        assert cfg.voice.dir == "~/.config/ownscribe/voices"
+
+    def test_default_voice_model(self):
+        cfg = Config()
+        assert cfg.voice.model == "speechbrain/spkrec-ecapa-voxceleb"
+
+    def test_default_voice_threshold(self):
+        cfg = Config()
+        assert cfg.voice.threshold == 0.25
+
+    def test_default_voice_auto_identify_off(self):
+        cfg = Config()
+        assert cfg.voice.auto_identify is False
+
+    def test_voice_resolved_dir_expands(self):
+        cfg = VoiceConfig(dir="~/somewhere/voices")
+        assert str(cfg.resolved_dir).startswith("/")
+        assert "~" not in str(cfg.resolved_dir)
+
+    def test_merge_voice_section(self):
+        cfg = Config()
+        cfg = _merge_toml(cfg, {"voice": {"threshold": 0.4, "auto_identify": True}})
+        assert cfg.voice.threshold == 0.4
+        assert cfg.voice.auto_identify is True
 
 
 class TestMergeToml:

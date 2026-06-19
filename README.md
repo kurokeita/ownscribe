@@ -20,6 +20,7 @@ Record, transcribe, and summarize meetings and system audio entirely on your mac
 - [Configuration](#configuration)
 - [Summarization Templates](#summarization-templates)
 - [Speaker Diarization](#speaker-diarization)
+- [Voice Identification](#voice-identification)
 - [Acknowledgments](#acknowledgments)
 - [Contributing](#contributing)
 - [License](#license)
@@ -45,6 +46,7 @@ All audio, transcripts, and summaries remain local.
 - **Microphone capture** — optionally record system + mic audio simultaneously with `--mic`
 - **WhisperX transcription** — fast, accurate speech-to-text with word-level timestamps
 - **Speaker diarization** — optional speaker identification via pyannote (requires HuggingFace token)
+- **Voice identification**: optionally enroll named voices and relabel known speakers across recordings (local, opt-in)
 - **Pipeline progress** — live checklist showing transcription, diarization sub-steps, and summarization progress
 - **Local LLM summarization** — structured meeting notes with a built-in model (Phi-4-mini); also supports Ollama, LM Studio, or any OpenAI-compatible server
 - **Summarization templates** — built-in presets for meetings, lectures, and quick briefs; define your own in config
@@ -262,6 +264,34 @@ Speaker identification requires a HuggingFace token with access to the pyannote 
 4. Run with `--diarize`
 
 On Apple Silicon Macs, diarization automatically uses the Metal Performance Shaders (MPS) GPU backend for ~10x faster processing. Set `device = "cpu"` in the `[diarization]` config section to disable this.
+
+## Voice Identification
+
+Diarization labels speakers generically (`SPEAKER_00`, `SPEAKER_01`, ...). Voice identification lets ownscribe remember who a voice belongs to and reuse that across recordings, relabeling known speakers with their real names.
+
+It builds on diarization, so make sure that works first (`--diarize` + an `HF_TOKEN`). Then install the optional extra:
+
+```bash
+uv pip install 'ownscribe[voiceid]'
+```
+
+**Enroll voices from a meeting.** After transcribing a meeting with diarization, run:
+
+```bash
+ownscribe analyze ~/ownscribe/2026-06-19_1030_standup
+```
+
+For each detected speaker, ownscribe plays a short clip (via `afplay`) so you can recognize the voice, then asks for a name. Press `p` to replay, type a name to enroll, or press Enter to skip. If you already renamed a speaker in that meeting's `transcript.md`, that name is offered as the default.
+
+**Identify on later transcriptions.** Pass `--identify` to relabel any enrolled voices:
+
+```bash
+ownscribe transcribe meeting.wav --diarize --identify
+```
+
+Speakers that match an enrolled voice are renamed; unknown speakers keep their `SPEAKER_xx` label. To always identify when diarizing, set `auto_identify = true` in the `[voice]` config section; then use `--no-identify` to skip it for a single run. Other `[voice]` options control the store location, embedding model, match `threshold`, and minimum sample length.
+
+Profiles are stored locally under `~/.config/ownscribe/voices/`, one JSON file per person. Everything stays on your machine; to forget someone, delete their `<name>.json` file.
 
 ## Acknowledgments
 
