@@ -43,3 +43,19 @@ def test_missing_speechbrain_raises_with_hint(monkeypatch):
     emb = EcapaEmbedder("fake/model")
     with pytest.raises(ImportError, match="voiceid"):
         emb._load()
+
+
+def test_ensure_available_raises_with_hint_when_missing(monkeypatch):
+    import builtins
+
+    real_import = builtins.__import__
+
+    def fake_import(name, *args, **kwargs):
+        if name.startswith("speechbrain"):
+            raise ImportError("no speechbrain")
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", fake_import)
+    emb = EcapaEmbedder("fake/model")
+    with pytest.raises(ImportError, match="voiceid"):
+        emb.ensure_available()

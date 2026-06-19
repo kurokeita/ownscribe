@@ -20,16 +20,21 @@ class EcapaEmbedder:
         self._model_name = model_name
         self._model = None
 
-    def _load(self) -> None:
-        if self._model is not None:
-            return
+    def ensure_available(self) -> None:
         try:
-            from speechbrain.inference.speaker import EncoderClassifier
+            from speechbrain.inference.speaker import EncoderClassifier  # noqa: F401
         except ImportError as exc:
             raise ImportError(
                 "speechbrain is required for voice identification. "
                 "Install with: uv pip install 'ownscribe[voiceid]'"
             ) from exc
+
+    def _load(self) -> None:
+        if self._model is not None:
+            return
+        self.ensure_available()
+        from speechbrain.inference.speaker import EncoderClassifier
+
         self._model = EncoderClassifier.from_hparams(source=self._model_name)
 
     def embed(self, audio_path: Path, segments: list[tuple[float, float]]) -> np.ndarray:

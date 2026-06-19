@@ -162,18 +162,25 @@ def _build_identify_tools(config: Config):
 
 def _maybe_identify(config: Config, result, audio_path: Path, identify: bool | None) -> None:
     want = config.voice.auto_identify if identify is None else identify
-    do_identify = want and result.has_speakers
-    if not do_identify:
+    if not (want and result.has_speakers):
         return
+
+    embedder, store = _build_identify_tools(config)
+    if not store.list_names():
+        click.echo(
+            "\nVoice identification is on, but no voices are enrolled yet. "
+            "Run 'ownscribe analyze <meeting-dir>' to enroll speakers.",
+            err=True,
+        )
+        return
+    try:
+        embedder.ensure_available()
+    except ImportError as exc:
+        click.echo(f"\nWarning: voice identification skipped, {exc}", err=True)
+        return
+
     from ownscribe.voiceid.identify import apply_relabel_map, build_relabel_map
 
-    try:
-        embedder, store = _build_identify_tools(config)
-    except ImportError as exc:
-        click.echo(f"\nWarning: voice identification skipped — {exc}", err=True)
-        return
-    if not store.list_names():
-        return
     mapping = build_relabel_map(result, audio_path, embedder, store, config.voice.threshold)
     if mapping:
         apply_relabel_map(result, mapping)
@@ -718,6 +725,7 @@ def run_analyze(config: Config, directory: str) -> None:
 
     try:
         embedder, store = _build_identify_tools(config)
+        embedder.ensure_available()
     except ImportError as exc:
         click.echo(f"Error: {exc}", err=True)
         raise SystemExit(1) from None
