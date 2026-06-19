@@ -151,6 +151,33 @@ def _format_output(config: Config, transcript_result, summary_text: str | None =
         return tx, sm
 
 
+def _build_identify_tools(config: Config):
+    from ownscribe.voiceid.embedder import EcapaEmbedder
+    from ownscribe.voiceid.store import VoiceStore
+
+    embedder = EcapaEmbedder(config.voice.model)
+    store = VoiceStore(config.voice.resolved_dir)
+    return embedder, store
+
+
+def _maybe_identify(config: Config, result, audio_path: Path, identify: bool) -> None:
+    do_identify = (identify or config.voice.auto_identify) and result.has_speakers
+    if not do_identify:
+        return
+    from ownscribe.voiceid.identify import apply_relabel_map, build_relabel_map
+
+    try:
+        embedder, store = _build_identify_tools(config)
+    except ImportError as exc:
+        click.echo(f"\nWarning: voice identification skipped — {exc}", err=True)
+        return
+    if not store.list_names():
+        return
+    mapping = build_relabel_map(result, audio_path, embedder, store, config.voice.threshold)
+    if mapping:
+        apply_relabel_map(result, mapping)
+
+
 def _slugify(text: str, max_length: int = 50) -> str:
     """Convert text to a filesystem-safe slug."""
     slug = text.lower().strip()
@@ -294,7 +321,9 @@ def run_pipeline(config: Config) -> None:
     _do_transcribe_and_summarize(config, audio_path, out_dir)
 
 
-def run_transcribe(config: Config, audio_file: str, *, summarize: bool = False) -> None:
+def run_transcribe(
+    config: Config, audio_file: str, *, summarize: bool = False, identify: bool = False
+) -> None:
     """Transcribe an audio file into a fresh ownscribe output directory."""
     source_path = Path(audio_file).resolve()
     _check_audio_silence(source_path)
@@ -305,7 +334,9 @@ def run_transcribe(config: Config, audio_file: str, *, summarize: bool = False) 
         out_dir = _get_named_output_dir(config, source_path.stem)
         audio_path = out_dir / f"recording{source_path.suffix}"
         shutil.copy2(source_path, audio_path)
-    _do_transcribe_and_summarize(config, audio_path, out_dir, summarize=summarize)
+    _do_transcribe_and_summarize(
+        config, audio_path, out_dir, summarize=summarize, identify=identify
+    )
 
 
 def run_warmup(config: Config) -> None:
@@ -446,6 +477,7 @@ def _do_transcribe_and_summarize(
     audio_path: Path,
     out_dir: Path,
     summarize: bool = True,
+    identify: bool = False,
 ) -> None:
     """Shared logic for transcribe + optional summarize."""
     diar_enabled = config.diarization.enabled and bool(config.diarization.hf_token)
@@ -474,6 +506,13 @@ def _do_transcribe_and_summarize(
             raise SystemExit(1) from None
 
         result = transcriber.transcribe(audio_path)
+
+        if result.has_speakers:
+            from ownscribe.voiceid.sidecar import DIARIZATION_FILENAME, write_sidecar
+
+            write_sidecar(result, out_dir / DIARIZATION_FILENAME)
+
+        _maybe_identify(config, result, audio_path, identify)
 
         # Save transcript — silent, no echo
         transcript_str, _ = _format_output(config, result)

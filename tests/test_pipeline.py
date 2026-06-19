@@ -672,3 +672,83 @@ class TestResume:
         with mock.patch("ownscribe.pipeline.run_summarize") as mock_sum:
             run_resume(config, str(tmp_path))
             mock_sum.assert_called_once_with(config, str(tmp_path / "transcript.json"), in_place=True)
+
+
+class TestVoiceIdentification:
+    """Sidecar writing and opt-in speaker relabeling in the transcribe path."""
+
+    def _diarized_result(self) -> TranscriptResult:
+        return TranscriptResult(
+            segments=[
+                Segment(text="hi", start=0.0, end=2.0, speaker="SPEAKER_00"),
+                Segment(text="yo", start=2.0, end=4.0, speaker="SPEAKER_01"),
+            ],
+            language="en",
+            duration=4.0,
+        )
+
+    def test_do_transcribe_writes_sidecar_when_diarized(self, tmp_path):
+        from ownscribe.pipeline import _do_transcribe_and_summarize
+        from ownscribe.voiceid.sidecar import DIARIZATION_FILENAME
+
+        config = Config()
+        config.summarization.enabled = False
+        audio = tmp_path / "recording.wav"
+        audio.write_bytes(b"x" * 100)
+
+        transcriber = mock.MagicMock()
+        transcriber.transcribe.return_value = self._diarized_result()
+        with mock.patch("ownscribe.pipeline._create_transcriber", return_value=transcriber):
+            _do_transcribe_and_summarize(config, audio, tmp_path, summarize=False)
+
+        assert (tmp_path / DIARIZATION_FILENAME).exists()
+
+    def test_do_transcribe_no_sidecar_without_speakers(self, tmp_path):
+        from ownscribe.pipeline import _do_transcribe_and_summarize
+        from ownscribe.voiceid.sidecar import DIARIZATION_FILENAME
+
+        config = Config()
+        config.summarization.enabled = False
+        audio = tmp_path / "recording.wav"
+        audio.write_bytes(b"x" * 100)
+
+        transcriber = mock.MagicMock()
+        transcriber.transcribe.return_value = TranscriptResult(
+            segments=[Segment(text="hi", start=0.0, end=2.0)],
+            language="en",
+            duration=2.0,
+        )
+        with mock.patch("ownscribe.pipeline._create_transcriber", return_value=transcriber):
+            _do_transcribe_and_summarize(config, audio, tmp_path, summarize=False)
+
+        assert not (tmp_path / DIARIZATION_FILENAME).exists()
+
+    def test_do_transcribe_relabels_when_identify(self, tmp_path):
+        from ownscribe import pipeline
+
+        config = Config()
+        config.summarization.enabled = False
+        audio = tmp_path / "recording.wav"
+        audio.write_bytes(b"x" * 100)
+
+        transcriber = mock.MagicMock()
+        transcriber.transcribe.return_value = self._diarized_result()
+
+        store = mock.MagicMock()
+        store.list_names.return_value = ["Alice"]
+
+        with (
+            mock.patch("ownscribe.pipeline._create_transcriber", return_value=transcriber),
+            mock.patch.object(pipeline, "_build_identify_tools", return_value=(object(), store)),
+            mock.patch(
+                "ownscribe.voiceid.identify.build_relabel_map",
+                return_value={"SPEAKER_00": "Alice"},
+            ),
+        ):
+            pipeline._do_transcribe_and_summarize(
+                config, audio, tmp_path, summarize=False, identify=True
+            )
+
+        transcript = (tmp_path / "transcript.md").read_text()
+        assert "Alice" in transcript
+        assert "SPEAKER_00" not in transcript
