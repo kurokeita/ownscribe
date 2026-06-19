@@ -752,3 +752,44 @@ class TestVoiceIdentification:
         transcript = (tmp_path / "transcript.md").read_text()
         assert "Alice" in transcript
         assert "SPEAKER_00" not in transcript
+
+
+class TestRunAnalyze:
+    """Interactive enrollment from a diarized meeting directory."""
+
+    def test_transcript_name_suggestions_maps_renamed_headers(self, tmp_path):
+        from ownscribe import pipeline
+
+        (tmp_path / "transcript.md").write_text(
+            "# Transcript\n\n**Alice** [00:00]\nhi\n\n**SPEAKER_01** [00:02]\nyo\n"
+        )
+        ranges = {"SPEAKER_00": [(0.0, 2.0)], "SPEAKER_01": [(2.0, 4.0)]}
+        suggestions = pipeline._transcript_name_suggestions(tmp_path, ranges)
+        assert suggestions == {"SPEAKER_00": "Alice"}
+
+    def test_run_analyze_enrolls_named_speakers(self, tmp_path, monkeypatch):
+        from ownscribe import pipeline
+        from ownscribe.voiceid.sidecar import DIARIZATION_FILENAME
+        from ownscribe.voiceid.store import VoiceStore
+
+        config = Config()
+        config.voice.dir = str(tmp_path / "voices")
+        (tmp_path / DIARIZATION_FILENAME).write_text(
+            '{"segments": [{"start": 0.0, "end": 3.0, "speaker": "SPEAKER_00"}]}'
+        )
+        (tmp_path / "recording.wav").write_bytes(b"x" * 100)
+
+        import numpy as np
+
+        embedder = mock.MagicMock()
+        embedder.embed.return_value = np.array([1.0, 0.0, 0.0], dtype=np.float32)
+        store = VoiceStore(config.voice.resolved_dir)
+
+        monkeypatch.setattr(pipeline, "_build_identify_tools", lambda cfg: (embedder, store))
+        monkeypatch.setattr("ownscribe.voiceid.playback.extract_clip", lambda *a: tmp_path / "clip.wav")
+        monkeypatch.setattr("ownscribe.voiceid.playback.play_clip", lambda *a: True)
+        monkeypatch.setattr("click.prompt", lambda *a, **k: "Alice")
+
+        pipeline.run_analyze(config, str(tmp_path))
+
+        assert VoiceStore(config.voice.resolved_dir).list_names() == ["Alice"]

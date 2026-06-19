@@ -101,6 +101,31 @@ class TestTranscribeCommand:
             assert result.exit_code == 0
             assert mock_run.call_args.kwargs["summarize"] is False
 
+    def test_identify_flag_passes_through(self, tmp_path):
+        audio = tmp_path / "meeting.wav"
+        audio.touch()
+        runner = CliRunner()
+        with _mock_config(), mock.patch("ownscribe.pipeline.run_transcribe") as mock_run:
+            result = runner.invoke(cli, ["transcribe", str(audio), "--identify"])
+            assert result.exit_code == 0
+            assert mock_run.call_args.kwargs["identify"] is True
+
+    def test_identify_flag_defaults_off(self, tmp_path):
+        audio = tmp_path / "meeting.wav"
+        audio.touch()
+        runner = CliRunner()
+        with _mock_config(), mock.patch("ownscribe.pipeline.run_transcribe") as mock_run:
+            result = runner.invoke(cli, ["transcribe", str(audio)])
+            assert result.exit_code == 0
+            assert mock_run.call_args.kwargs["identify"] is False
+
+    def test_analyze_command_calls_run_analyze(self, tmp_path):
+        runner = CliRunner()
+        with _mock_config(), mock.patch("ownscribe.pipeline.run_analyze") as mock_run:
+            result = runner.invoke(cli, ["analyze", str(tmp_path)])
+            assert result.exit_code == 0
+            assert mock_run.call_args[0][1] == str(tmp_path)
+
 
 class TestSubcommandHelp:
     def test_transcribe_help(self):

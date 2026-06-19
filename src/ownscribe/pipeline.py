@@ -657,3 +657,104 @@ def run_resume(config: Config, directory: str) -> None:
         click.echo(f"Found audio: {audio}")
         click.echo("Resuming: transcribe + summarize.\n")
         _do_transcribe_and_summarize(config, audio, dir_path)
+
+
+_HEADER_RE = re.compile(r"^\*\*(.+?)\*\*\s*\[(\d{2}):(\d{2})(?::(\d{2}))?\]")
+_SPEAKER_LABEL_RE = re.compile(r"^SPEAKER_\d+$")
+
+
+def _transcript_name_suggestions(
+    directory: Path, ranges: dict[str, list[tuple[float, float]]]
+) -> dict[str, str]:
+    transcript = directory / "transcript.md"
+    if not transcript.exists():
+        return {}
+    suggestions: dict[str, str] = {}
+    for line in transcript.read_text().splitlines():
+        match = _HEADER_RE.match(line.strip())
+        if not match:
+            continue
+        name = match.group(1).strip()
+        if _SPEAKER_LABEL_RE.match(name):
+            continue
+        a, b = int(match.group(2)), int(match.group(3))
+        c = int(match.group(4)) if match.group(4) else None
+        timestamp = (a * 3600 + b * 60 + c) if c is not None else (a * 60 + b)
+        for speaker, spk_ranges in ranges.items():
+            if any(start <= timestamp <= end for start, end in spk_ranges):
+                suggestions.setdefault(speaker, name)
+                break
+    return suggestions
+
+
+def run_analyze(config: Config, directory: str) -> None:
+    """Interactively enroll named voices from a diarized meeting directory."""
+    from ownscribe.voiceid.playback import (
+        extract_clip,
+        play_clip,
+        representative_range,
+        total_duration,
+    )
+    from ownscribe.voiceid.sidecar import DIARIZATION_FILENAME, read_speaker_ranges
+
+    dir_path = Path(directory).resolve()
+    sidecar = dir_path / DIARIZATION_FILENAME
+    if not sidecar.exists():
+        click.echo(
+            f"Error: no {DIARIZATION_FILENAME} in {dir_path}.\n"
+            "Run a diarized transcription first (transcribe --diarize).",
+            err=True,
+        )
+        raise SystemExit(1)
+
+    audio = _find_audio(dir_path)
+    if not audio:
+        click.echo(f"Error: no audio file found in {dir_path}.", err=True)
+        raise SystemExit(1)
+
+    ranges_by_speaker = read_speaker_ranges(sidecar)
+    suggestions = _transcript_name_suggestions(dir_path, ranges_by_speaker)
+
+    try:
+        embedder, store = _build_identify_tools(config)
+    except ImportError as exc:
+        click.echo(f"Error: {exc}", err=True)
+        raise SystemExit(1) from None
+
+    for speaker, ranges in ranges_by_speaker.items():
+        start, end = representative_range(ranges)
+        if (end - start) < config.voice.min_clip_s:
+            click.echo(f"Note: {speaker}'s longest clip is short (<{config.voice.min_clip_s}s).")
+        try:
+            clip = extract_clip(audio, start, end)
+        except Exception:
+            click.echo(f"Could not extract a clip for {speaker}; skipping.", err=True)
+            continue
+
+        default = suggestions.get(speaker, "")
+        while True:
+            played = play_clip(clip)
+            hint = "" if played else " (playback unavailable)"
+            answer = click.prompt(
+                f"{speaker}{hint} — name, 'p' to replay, Enter to skip",
+                default=default,
+                show_default=bool(default),
+            ).strip()
+            if answer.lower() == "p":
+                continue
+            name = answer
+            break
+
+        clip.unlink(missing_ok=True)
+        if not name:
+            click.echo(f"Skipped {speaker}.")
+            continue
+
+        embedding = embedder.embed(audio, ranges)
+        store.enroll(
+            name,
+            embedding,
+            source_dir=dir_path.name,
+            duration_s=total_duration(ranges),
+        )
+        click.echo(f"Enrolled {speaker} as '{name}'.")
