@@ -80,6 +80,28 @@ class TestMainCommand:
             assert config.audio.silence_timeout == 0
 
 
+class TestTranscribeCommand:
+    def test_summarize_flag_passes_through(self, tmp_path):
+        audio = tmp_path / "meeting.wav"
+        audio.touch()
+        runner = CliRunner()
+        with _mock_config(), mock.patch("ownscribe.pipeline.run_transcribe") as mock_run:
+            result = runner.invoke(cli, ["transcribe", str(audio), "--summarize"])
+            assert result.exit_code == 0
+            config = mock_run.call_args[0][0]
+            assert config.summarization.enabled is True
+            assert mock_run.call_args.kwargs["summarize"] is True
+
+    def test_summarize_flag_defaults_off(self, tmp_path):
+        audio = tmp_path / "meeting.wav"
+        audio.touch()
+        runner = CliRunner()
+        with _mock_config(), mock.patch("ownscribe.pipeline.run_transcribe") as mock_run:
+            result = runner.invoke(cli, ["transcribe", str(audio)])
+            assert result.exit_code == 0
+            assert mock_run.call_args.kwargs["summarize"] is False
+
+
 class TestSubcommandHelp:
     def test_transcribe_help(self):
         runner = CliRunner()

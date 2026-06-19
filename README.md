@@ -67,9 +67,11 @@ Works with any app that outputs audio through Core Audio (Zoom, Teams, Meet, etc
 
 > **Tip:** Your terminal app (Terminal, iTerm2, VS Code, etc.) needs **Screen Recording** permission to capture system audio.
 > Open the settings panel directly with:
+>
 > ```bash
 > open "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture"
 > ```
+>
 > Enable your terminal app, then restart it.
 
 ## Installation
@@ -115,6 +117,7 @@ ownscribe                    # records system audio, Ctrl+C to stop
 ```
 
 This will:
+
 1. Capture system audio until you press Ctrl+C (or auto-stop after 5 minutes of silence)
 2. Transcribe with WhisperX
 3. Summarize with your local LLM
@@ -147,8 +150,9 @@ ownscribe --silence-timeout 0                 # disable silence auto-stop
 ownscribe devices                  # list audio devices (uses native CoreAudio when available)
 ownscribe apps                     # list running apps with PIDs for use with --pid
 ownscribe warmup                   # prefetch WhisperX/pyannote models before a meeting
-ownscribe transcribe recording.wav # transcribe an audio file (saves alongside the input)
-ownscribe summarize transcript.md  # summarize a transcript (saves alongside the input)
+ownscribe transcribe recording.wav # transcribe an audio file (copies it into a new output dir)
+ownscribe transcribe recording.wav --summarize # transcribe, then also summarize
+ownscribe summarize transcript.md  # summarize a transcript (copies it into a new output dir)
 ownscribe resume ./2026-02-20_1736 # resume a failed/partial pipeline in a directory
 ownscribe ask "question"           # search your meetings with a natural-language question
 ownscribe config                   # open config file in $EDITOR
@@ -174,6 +178,7 @@ ownscribe ask "action items from last week" --limit 5
 ```
 
 This runs a two-stage pipeline:
+
 1. **Find** — sends meeting summaries to the LLM to identify which meetings are relevant
 2. **Answer** — sends the full transcripts of relevant meetings to the LLM to produce an answer with quotes
 
@@ -252,7 +257,7 @@ Then use with `--template my-standup` or `template = "my-standup"` in config.
 Speaker identification requires a HuggingFace token with access to the pyannote diarization model:
 
 1. Accept the terms for [pyannote/speaker-diarization-community-1](https://huggingface.co/pyannote/speaker-diarization-community-1) on HuggingFace
-2. Create a token at https://huggingface.co/settings/tokens
+2. Create a token at <https://huggingface.co/settings/tokens>
 3. Set `HF_TOKEN` env var or add `hf_token` to config
 4. Run with `--diarize`
 

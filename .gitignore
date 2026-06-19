@@ -34,3 +34,5 @@ swift/.build/
 
 # asciinema recordings (regenerated from scripts/)
 *.cast
+
+node_modules
