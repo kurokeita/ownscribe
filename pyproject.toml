@@ -32,7 +32,8 @@ dependencies = [
 [project.optional-dependencies]
 ollama = ["ollama>=0.4"]
 openai = ["openai>=1.0"]
-all = ["ollama>=0.4", "openai>=1.0"]
+voiceid = ["speechbrain>=1.0"]
+all = ["ollama>=0.4", "openai>=1.0", "speechbrain>=1.0"]
 
 [project.urls]
 Homepage = "https://github.com/paberr/ownscribe"
