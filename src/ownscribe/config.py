@@ -50,6 +50,14 @@ model = "phi-4-mini"      # local: "phi-4-mini", path to GGUF, or hf:owner/repo/
 dir = "~/ownscribe"       # base output directory
 format = "markdown"       # "markdown" or "json"
 keep_recording = true     # keep WAV files after transcription; false = auto-delete
+
+[voice]
+# Enable per-run via `ownscribe transcribe --identify`, or always with auto_identify.
+# dir = "~/.config/ownscribe/voices"            # where enrolled voice profiles are stored
+# model = "speechbrain/spkrec-ecapa-voxceleb"   # speaker-embedding model
+# threshold = 0.25         # min cosine similarity to accept a voice match
+# min_clip_s = 3.0         # min seconds of audio for a usable enrollment sample
+auto_identify = false      # automatically identify enrolled voices when diarizing
 """
 
 
@@ -109,12 +117,26 @@ class OutputConfig:
 
 
 @dataclass
+class VoiceConfig:
+    dir: str = "~/.config/ownscribe/voices"
+    model: str = "speechbrain/spkrec-ecapa-voxceleb"
+    threshold: float = 0.25
+    min_clip_s: float = 3.0
+    auto_identify: bool = False
+
+    @property
+    def resolved_dir(self) -> Path:
+        return Path(self.dir).expanduser()
+
+
+@dataclass
 class Config:
     audio: AudioConfig = field(default_factory=AudioConfig)
     transcription: TranscriptionConfig = field(default_factory=TranscriptionConfig)
     diarization: DiarizationConfig = field(default_factory=DiarizationConfig)
     summarization: SummarizationConfig = field(default_factory=SummarizationConfig)
     output: OutputConfig = field(default_factory=OutputConfig)
+    voice: VoiceConfig = field(default_factory=VoiceConfig)
     templates: dict[str, TemplateConfig] = field(default_factory=dict)
 
     @classmethod
@@ -162,6 +184,11 @@ def _merge_toml(config: Config, data: dict) -> Config:
         for k, v in data["output"].items():
             if hasattr(config.output, k):
                 setattr(config.output, k, v)
+
+    if "voice" in data:
+        for k, v in data["voice"].items():
+            if hasattr(config.voice, k):
+                setattr(config.voice, k, v)
 
     if "templates" in data:
         for name, t_data in data["templates"].items():
