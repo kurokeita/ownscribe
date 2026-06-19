@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import re
 import select
+import shutil
 import signal
 import sys
 import termios
@@ -64,6 +65,25 @@ def _get_output_dir(config: Config) -> Path:
     out_dir = base / timestamp
     out_dir.mkdir(parents=True, exist_ok=True)
     return out_dir
+
+
+def _get_named_output_dir(config: Config, name: str) -> Path:
+    """Create a timestamped output directory named after a source file."""
+    base = config.output.resolved_dir
+    timestamp = datetime.now().strftime("%Y-%m-%d_%H%M")
+    slug = _slugify(name) or "file"
+    out_dir = base / f"{timestamp}_{slug}"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    return out_dir
+
+
+def _within_output_dir(config: Config, path: Path) -> bool:
+    """True if path already lives inside the configured output directory."""
+    try:
+        path.resolve().relative_to(config.output.resolved_dir.resolve())
+        return True
+    except ValueError:
+        return False
 
 
 def _create_recorder(config: Config):
@@ -149,6 +169,24 @@ def _generate_title_slug(summary: str, summarizer) -> str:
     except Exception:
         logging.getLogger(__name__).warning("Could not generate title", exc_info=True)
         return ""
+
+
+_TIMESTAMP_PREFIX = re.compile(r"^\d{4}-\d{2}-\d{2}_\d{4}")
+
+
+def _rename_with_title(out_dir: Path, title_slug: str) -> Path:
+    """Rename out_dir to '<timestamp>_<title_slug>', preserving the timestamp prefix."""
+    match = _TIMESTAMP_PREFIX.match(out_dir.name)
+    prefix = match.group(0) if match else out_dir.name
+    new_dir = out_dir.parent / f"{prefix}_{title_slug}"
+    if new_dir == out_dir:
+        return out_dir
+    try:
+        out_dir.rename(new_dir)
+        return new_dir
+    except Exception:
+        logging.getLogger(__name__).warning("Could not rename output directory", exc_info=True)
+        return out_dir
 
 
 def run_pipeline(config: Config) -> None:
@@ -257,11 +295,16 @@ def run_pipeline(config: Config) -> None:
 
 
 def run_transcribe(config: Config, audio_file: str) -> None:
-    """Transcribe an audio file and save the transcript alongside the input."""
-    audio_path = Path(audio_file).resolve()
-    _check_audio_silence(audio_path)
-    out_dir = audio_path.parent
-    out_dir.mkdir(parents=True, exist_ok=True)
+    """Transcribe an audio file into a fresh ownscribe output directory."""
+    source_path = Path(audio_file).resolve()
+    _check_audio_silence(source_path)
+    if _within_output_dir(config, source_path):
+        out_dir = source_path.parent
+        audio_path = source_path
+    else:
+        out_dir = _get_named_output_dir(config, source_path.stem)
+        audio_path = out_dir / f"recording{source_path.suffix}"
+        shutil.copy2(source_path, audio_path)
     _do_transcribe_and_summarize(config, audio_path, out_dir, summarize=False)
 
 
@@ -317,8 +360,12 @@ def run_warmup(config: Config) -> None:
         click.echo(f"Summarization model ready: {config.summarization.model}")
 
 
-def run_summarize(config: Config, transcript_file: str) -> None:
-    """Summarize a transcript file and save the summary alongside the input."""
+def run_summarize(config: Config, transcript_file: str, *, in_place: bool = False) -> None:
+    """Summarize a transcript file into a fresh ownscribe output directory.
+
+    When ``in_place`` is set, summarize within the transcript's own directory
+    (used by ``resume`` to complete an existing meeting directory).
+    """
     transcript_path = Path(transcript_file).resolve()
     transcript_text = transcript_path.read_text()
 
@@ -343,7 +390,11 @@ def run_summarize(config: Config, transcript_file: str) -> None:
 
     from ownscribe.output.markdown import format_summary
 
-    out_dir = transcript_path.parent
+    if in_place or _within_output_dir(config, transcript_path):
+        out_dir = transcript_path.parent
+    else:
+        out_dir = _get_named_output_dir(config, transcript_path.stem)
+        shutil.copy2(transcript_path, out_dir / f"transcript{transcript_path.suffix}")
     local_sum = config.summarization.backend == "local"
 
     try:
@@ -382,12 +433,7 @@ def run_summarize(config: Config, transcript_file: str) -> None:
     summary_path.write_text(summary_md)
 
     if title_slug:
-        new_dir = out_dir.parent / f"{out_dir.name}_{title_slug}"
-        try:
-            out_dir.rename(new_dir)
-            out_dir = new_dir
-        except Exception:
-            logging.getLogger(__name__).warning("Could not rename output directory", exc_info=True)
+        out_dir = _rename_with_title(out_dir, title_slug)
 
     summary_path = out_dir / "summary.md"
 
@@ -496,12 +542,7 @@ def _do_transcribe_and_summarize(
         click.echo(f"Summary saved to {out_dir / f'summary.{ext}'}")
         click.echo(f"\n{summary_str or summary}")
         if title_slug:
-            new_dir = out_dir.parent / f"{out_dir.name}_{title_slug}"
-            try:
-                out_dir.rename(new_dir)
-                out_dir = new_dir
-            except Exception:
-                logging.getLogger(__name__).warning("Could not rename output directory", exc_info=True)
+            out_dir = _rename_with_title(out_dir, title_slug)
     elif not summarize:
         click.echo(f"\n{transcript_str}")
 
@@ -571,7 +612,7 @@ def run_resume(config: Config, directory: str) -> None:
         # Have transcript, missing summary — summarize only
         click.echo(f"Found transcript: {transcript}")
         click.echo("Resuming: summarize only.\n")
-        run_summarize(config, str(transcript))
+        run_summarize(config, str(transcript), in_place=True)
     else:
         # Have audio, missing transcript (and summary) — full transcribe + summarize
         click.echo(f"Found audio: {audio}")

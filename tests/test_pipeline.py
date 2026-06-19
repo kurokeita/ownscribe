@@ -409,18 +409,20 @@ class TestRunWarmup:
         mock_ensure.assert_not_called()
 
 
-class TestRunTranscribeColocation:
-    """Test that run_transcribe saves output alongside the input file."""
+class TestRunTranscribeOutputDir:
+    """run_transcribe copies the source into a fresh, named ownscribe output dir."""
 
-    def test_transcript_saved_next_to_audio(self, tmp_path):
+    def test_transcript_saved_in_named_output_dir(self, tmp_path):
         from ownscribe.pipeline import run_transcribe
 
-        audio_dir = tmp_path / "meetings" / "2026-01-01_1200"
-        audio_dir.mkdir(parents=True)
-        audio_path = audio_dir / "recording.wav"
+        source_dir = tmp_path / "downloads"
+        source_dir.mkdir()
+        audio_path = source_dir / "Team Meeting.wav"
         audio_path.touch()
 
+        out_base = tmp_path / "out"
         config = Config()
+        config.output.dir = str(out_base)
         config.output.format = "markdown"
 
         mock_transcriber = mock.MagicMock()
@@ -436,13 +438,81 @@ class TestRunTranscribeColocation:
         ):
             run_transcribe(config, str(audio_path))
 
-        assert (audio_dir / "transcript.md").exists()
+        assert audio_path.exists()
+        subdirs = [p for p in out_base.iterdir() if p.is_dir()]
+        assert len(subdirs) == 1
+        out_dir = subdirs[0]
+        assert out_dir.name.endswith("_team-meeting")
+        assert (out_dir / "transcript.md").exists()
+        assert (out_dir / "recording.wav").exists()
+
+    def test_transcript_in_place_when_within_output_dir(self, tmp_path):
+        from ownscribe.pipeline import run_transcribe
+
+        out_base = tmp_path / "out"
+        existing = out_base / "2026-01-01_1200_team-meeting"
+        existing.mkdir(parents=True)
+        audio_path = existing / "recording.wav"
+        audio_path.touch()
+
+        config = Config()
+        config.output.dir = str(out_base)
+        config.output.format = "markdown"
+
+        mock_transcriber = mock.MagicMock()
+        mock_transcriber.transcribe.return_value = TranscriptResult(
+            segments=[Segment(text="Test.", start=0.0, end=1.0)],
+            language="en",
+            duration=1.0,
+        )
+
+        with (
+            mock.patch("ownscribe.pipeline._create_transcriber", return_value=mock_transcriber),
+            mock.patch("ownscribe.pipeline._check_audio_silence"),
+        ):
+            run_transcribe(config, str(audio_path))
+
+        assert [p for p in out_base.iterdir() if p.is_dir()] == [existing]
+        assert (existing / "transcript.md").exists()
 
 
-class TestRunSummarizeColocation:
-    """Test that run_summarize saves output alongside the input file."""
+class TestRunSummarizeOutputDir:
+    """run_summarize copies the source into a fresh, named ownscribe output dir."""
 
-    def test_summary_saved_next_to_transcript(self, tmp_path):
+    def test_summary_saved_in_named_output_dir(self, tmp_path):
+        from ownscribe.pipeline import run_summarize
+
+        source_dir = tmp_path / "notes"
+        source_dir.mkdir()
+        tx_path = source_dir / "Standup Notes.md"
+        tx_path.write_text("# Transcript\nHello world.")
+
+        out_base = tmp_path / "out"
+        config = Config()
+        config.output.dir = str(out_base)
+        config.summarization.enabled = True
+
+        mock_summarizer = mock.MagicMock()
+        mock_summarizer.is_available.return_value = True
+        mock_summarizer.summarize.return_value = "## Summary\nGood meeting."
+        mock_summarizer.generate_title.return_value = "test-title"
+
+        with (
+            mock.patch("ownscribe.pipeline.create_summarizer", return_value=mock_summarizer),
+            mock.patch("ownscribe.summarization.llama_cpp_summarizer._ensure_model"),
+        ):
+            run_summarize(config, str(tx_path))
+
+        assert tx_path.exists()
+        subdirs = [p for p in out_base.iterdir() if p.is_dir()]
+        assert len(subdirs) == 1
+        out_dir = subdirs[0]
+        assert out_dir.name.endswith("_test-title")
+        assert "standup-notes" not in out_dir.name
+        assert (out_dir / "summary.md").exists()
+        assert (out_dir / "transcript.md").exists()
+
+    def test_in_place_summarizes_in_source_dir(self, tmp_path):
         from ownscribe.pipeline import run_summarize
 
         tx_dir = tmp_path / "meetings" / "2026-01-01_1200"
@@ -462,10 +532,38 @@ class TestRunSummarizeColocation:
             mock.patch("ownscribe.pipeline.create_summarizer", return_value=mock_summarizer),
             mock.patch("ownscribe.summarization.llama_cpp_summarizer._ensure_model"),
         ):
-            run_summarize(config, str(tx_path))
+            run_summarize(config, str(tx_path), in_place=True)
 
         renamed_dir = tx_dir.parent / f"{tx_dir.name}_test-title"
         assert (renamed_dir / "summary.md").exists()
+
+    def test_summary_in_place_when_within_output_dir(self, tmp_path):
+        from ownscribe.pipeline import run_summarize
+
+        out_base = tmp_path / "out"
+        existing = out_base / "2026-01-01_1200_team-meeting"
+        existing.mkdir(parents=True)
+        tx_path = existing / "transcript.md"
+        tx_path.write_text("# Transcript\nHello world.")
+
+        config = Config()
+        config.output.dir = str(out_base)
+        config.summarization.enabled = True
+
+        mock_summarizer = mock.MagicMock()
+        mock_summarizer.is_available.return_value = True
+        mock_summarizer.summarize.return_value = "## Summary\nGood meeting."
+        mock_summarizer.generate_title.return_value = "final-title"
+
+        with (
+            mock.patch("ownscribe.pipeline.create_summarizer", return_value=mock_summarizer),
+            mock.patch("ownscribe.summarization.llama_cpp_summarizer._ensure_model"),
+        ):
+            run_summarize(config, str(tx_path))
+
+        renamed = out_base / "2026-01-01_1200_final-title"
+        assert [p for p in out_base.iterdir() if p.is_dir()] == [renamed]
+        assert (renamed / "summary.md").exists()
 
 
 class TestResume:
@@ -498,7 +596,7 @@ class TestResume:
 
         with mock.patch("ownscribe.pipeline.run_summarize") as mock_sum:
             run_resume(config, str(tmp_path))
-            mock_sum.assert_called_once_with(config, str(tmp_path / "transcript.md"))
+            mock_sum.assert_called_once_with(config, str(tmp_path / "transcript.md"), in_place=True)
 
     def test_resumes_transcribe_and_summarize(self, tmp_path):
         from ownscribe.pipeline import run_resume
@@ -533,4 +631,4 @@ class TestResume:
 
         with mock.patch("ownscribe.pipeline.run_summarize") as mock_sum:
             run_resume(config, str(tmp_path))
-            mock_sum.assert_called_once_with(config, str(tmp_path / "transcript.json"))
+            mock_sum.assert_called_once_with(config, str(tmp_path / "transcript.json"), in_place=True)
