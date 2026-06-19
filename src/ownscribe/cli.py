@@ -142,13 +142,18 @@ def devices() -> None:
 @click.argument("file", type=click.Path(exists=True))
 @click.option("--diarize", is_flag=True, help="Enable speaker diarization.")
 @click.option("--summarize", is_flag=True, help="Also summarize after transcribing.")
-@click.option("--identify", is_flag=True, help="Relabel diarized speakers from enrolled voices.")
+@click.option(
+    "--identify/--no-identify",
+    "identify",
+    default=None,
+    help="Relabel diarized speakers from enrolled voices (overrides voice.auto_identify).",
+)
 @click.option("--model", default=None, help="Whisper model size.")
 @click.option("--language", default=None, help="Language code for transcription (e.g. en, de, fr).")
 @click.option("--format", "output_format", type=click.Choice(["markdown", "json"]), default=None)
 @click.pass_context
 def transcribe(
-    ctx: click.Context, file: str, diarize: bool, summarize: bool, identify: bool,
+    ctx: click.Context, file: str, diarize: bool, summarize: bool, identify: bool | None,
     model: str | None, language: str | None, output_format: str | None,
 ) -> None:
     """Transcribe an audio file."""

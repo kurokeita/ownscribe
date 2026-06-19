@@ -753,6 +753,58 @@ class TestVoiceIdentification:
         assert "Alice" in transcript
         assert "SPEAKER_00" not in transcript
 
+    def test_auto_identify_relabels_when_identify_none(self, tmp_path):
+        from ownscribe import pipeline
+
+        config = Config()
+        config.summarization.enabled = False
+        config.voice.auto_identify = True
+        audio = tmp_path / "recording.wav"
+        audio.write_bytes(b"x" * 100)
+
+        transcriber = mock.MagicMock()
+        transcriber.transcribe.return_value = self._diarized_result()
+
+        store = mock.MagicMock()
+        store.list_names.return_value = ["Alice"]
+
+        with (
+            mock.patch("ownscribe.pipeline._create_transcriber", return_value=transcriber),
+            mock.patch.object(pipeline, "_build_identify_tools", return_value=(object(), store)),
+            mock.patch(
+                "ownscribe.voiceid.identify.build_relabel_map",
+                return_value={"SPEAKER_00": "Alice"},
+            ),
+        ):
+            pipeline._do_transcribe_and_summarize(
+                config, audio, tmp_path, summarize=False, identify=None
+            )
+
+        assert "Alice" in (tmp_path / "transcript.md").read_text()
+
+    def test_no_identify_overrides_auto_identify(self, tmp_path):
+        from ownscribe import pipeline
+
+        config = Config()
+        config.summarization.enabled = False
+        config.voice.auto_identify = True
+        audio = tmp_path / "recording.wav"
+        audio.write_bytes(b"x" * 100)
+
+        transcriber = mock.MagicMock()
+        transcriber.transcribe.return_value = self._diarized_result()
+
+        with (
+            mock.patch("ownscribe.pipeline._create_transcriber", return_value=transcriber),
+            mock.patch.object(pipeline, "_build_identify_tools") as build_tools,
+        ):
+            pipeline._do_transcribe_and_summarize(
+                config, audio, tmp_path, summarize=False, identify=False
+            )
+
+        build_tools.assert_not_called()
+        assert "SPEAKER_00" in (tmp_path / "transcript.md").read_text()
+
 
 class TestRunAnalyze:
     """Interactive enrollment from a diarized meeting directory."""

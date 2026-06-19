@@ -110,12 +110,21 @@ class TestTranscribeCommand:
             assert result.exit_code == 0
             assert mock_run.call_args.kwargs["identify"] is True
 
-    def test_identify_flag_defaults_off(self, tmp_path):
+    def test_identify_flag_defaults_to_none(self, tmp_path):
         audio = tmp_path / "meeting.wav"
         audio.touch()
         runner = CliRunner()
         with _mock_config(), mock.patch("ownscribe.pipeline.run_transcribe") as mock_run:
             result = runner.invoke(cli, ["transcribe", str(audio)])
+            assert result.exit_code == 0
+            assert mock_run.call_args.kwargs["identify"] is None
+
+    def test_no_identify_flag_passes_false(self, tmp_path):
+        audio = tmp_path / "meeting.wav"
+        audio.touch()
+        runner = CliRunner()
+        with _mock_config(), mock.patch("ownscribe.pipeline.run_transcribe") as mock_run:
+            result = runner.invoke(cli, ["transcribe", str(audio), "--no-identify"])
             assert result.exit_code == 0
             assert mock_run.call_args.kwargs["identify"] is False
 

@@ -289,7 +289,7 @@ For each detected speaker, ownscribe plays a short clip (via `afplay`) so you ca
 ownscribe transcribe meeting.wav --diarize --identify
 ```
 
-Speakers that match an enrolled voice are renamed; unknown speakers keep their `SPEAKER_xx` label. To always identify when diarizing, set `auto_identify = true` in the `[voice]` config section. Other `[voice]` options control the store location, embedding model, match `threshold`, and minimum sample length.
+Speakers that match an enrolled voice are renamed; unknown speakers keep their `SPEAKER_xx` label. To always identify when diarizing, set `auto_identify = true` in the `[voice]` config section; then use `--no-identify` to skip it for a single run. Other `[voice]` options control the store location, embedding model, match `threshold`, and minimum sample length.
 
 Profiles are stored locally under `~/.config/ownscribe/voices/`, one JSON file per person. Everything stays on your machine; to forget someone, delete their `<name>.json` file.
 

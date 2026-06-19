@@ -160,8 +160,9 @@ def _build_identify_tools(config: Config):
     return embedder, store
 
 
-def _maybe_identify(config: Config, result, audio_path: Path, identify: bool) -> None:
-    do_identify = (identify or config.voice.auto_identify) and result.has_speakers
+def _maybe_identify(config: Config, result, audio_path: Path, identify: bool | None) -> None:
+    want = config.voice.auto_identify if identify is None else identify
+    do_identify = want and result.has_speakers
     if not do_identify:
         return
     from ownscribe.voiceid.identify import apply_relabel_map, build_relabel_map
@@ -322,7 +323,7 @@ def run_pipeline(config: Config) -> None:
 
 
 def run_transcribe(
-    config: Config, audio_file: str, *, summarize: bool = False, identify: bool = False
+    config: Config, audio_file: str, *, summarize: bool = False, identify: bool | None = None
 ) -> None:
     """Transcribe an audio file into a fresh ownscribe output directory."""
     source_path = Path(audio_file).resolve()
@@ -477,7 +478,7 @@ def _do_transcribe_and_summarize(
     audio_path: Path,
     out_dir: Path,
     summarize: bool = True,
-    identify: bool = False,
+    identify: bool | None = None,
 ) -> None:
     """Shared logic for transcribe + optional summarize."""
     diar_enabled = config.diarization.enabled and bool(config.diarization.hf_token)
